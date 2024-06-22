@@ -6,7 +6,7 @@ const app=express();
 app.use(express.json());
 
 app.get("/", (req, res) => {
-    res.json({ message:"hola mundo" });
+    res.json({ message:"Bienvenido al proyecto recetario" });
 });
 
 app.use('/users',usersRoutes);
