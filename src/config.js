@@ -1,3 +1,3 @@
-import {config} from 'dotenv';
-
-export const PORT = config.NODE_PORT ?? 3000;
+import env from 'dotenv';
+env.config();
+export const PORT = process.env.NODE_PORT ?? 3000;
