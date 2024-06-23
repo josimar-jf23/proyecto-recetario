@@ -9,7 +9,7 @@ app.get("/", (req, res) => {
     res.json({ message:"Bienvenido al proyecto recetario" });
 });
 
-app.use('/users',usersRoutes);
+app.use('/api/users',usersRoutes);
 
 app.listen(PORT);
 console.log("server on port",PORT);

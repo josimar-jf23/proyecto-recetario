@@ -17,6 +17,5 @@ export const getUsers = async (req, res) => {
             }
         },
     });
-    console.log(users);
     res.json(users);
 };
