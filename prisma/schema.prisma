@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model User {
+  id        Int     @id @default(autoincrement())
+  email     String  @unique
+  name      String  @db.VarChar(50)
+  password  String
+  token     String?
+  roleId    Int?
+  role      Role?    @relation(fields: [roleId], references: [id])  
+  recipes   Recipe[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("users")
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  users       User[]
+  permissions Permission[]
+  @@map("roles")
+}
+
+model Permission {
+  id     Int      @id @default(autoincrement())
+  name   String   @unique
+  role   Role     @relation(fields: [roleId], references: [id])
+  roleId Int
+  @@map("permissions")
+}
+
+model UnitMeasure {
+  id    Int     @id @default(autoincrement())
+  name  String  @unique @db.VarChar(100)
+  short String  @db.VarChar(20)
+  @@map("units_measure")
+}
+
+model Category {
+  id    Int     @id @default(autoincrement())
+  name  String  @unique @db.VarChar(200)
+  description String? 
+  @@map("categories")
+}
+
+model Recipe{
+  id Int @id @default(autoincrement())
+  name String @db.VarChar(250)
+  description String?
+  preparation_time Decimal @db.Decimal(9,2)
+  user User @relation(fields: [UserId],references: [id])
+  UserId Int
+  recipe_steps RecipeStep[]
+  recipe_ingredients RecipeIngredient[]  
+  @@map("recipes")
+}
+
+model RecipeStep{
+  id Int @id @default(autoincrement())  
+  step String 
+  order Int @default(0)
+  recipe Recipe @relation(fields: [RecipeId],references: [id])
+  RecipeId Int
+  @@map("recipe_steps")
+}
+
+model RecipeIngredient{
+  id Int @id @default(autoincrement())  
+  ingredient String
+  amount Decimal @db.Decimal(9,2)
+  order Int @default(0)
+  recipe Recipe @relation(fields: [RecipeId],references: [id])
+  RecipeId Int
+  @@map("recipe_ingredients")
+}
+
