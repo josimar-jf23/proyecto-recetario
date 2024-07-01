@@ -2,6 +2,7 @@ import express from "express";
 import { PORT } from "./src/config.js";
 import usersRoutes from "./src/routes/users.routes.js";
 import rolesRoutes from "./src/routes/roles.routes.js";
+import seguridadRoutes from "./src/routes/seguridad.routes.js";
 import { config } from "dotenv";
 import jwt from "jsonwebtoken";
 config();
@@ -15,11 +16,13 @@ app.use((req, res, next) => {
     const token = authHeader && authHeader.split(" ")[1];
     req.session = { user: null, access_token: null };
     try {
-        const data = jwt.verify(token, process.env.SECRET_KEY);
-        req.session.user = data;
-        req.session.access_token = token;
+        if(token){
+            const data = jwt.verify(token, process.env.SECRET_KEY);
+            req.session.user = data;
+            req.session.access_token = token;
+        }
     } catch (error){
-        console.log(error);
+        //console.log("errores",error);
     }
     next();
 });
@@ -28,6 +31,7 @@ app.get("/", (req, res) => {
     res.json({ message: "Bienvenido al proyecto recetario" });
 });
 
+app.use("", seguridadRoutes);
 app.use("/api", usersRoutes);
 app.use("/api", rolesRoutes);
 

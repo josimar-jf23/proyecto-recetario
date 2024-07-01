@@ -1,1 +1,4 @@
-NODE_PORT=3000
+DATABASE_URL=""
+NODE_PORT="4000"
+SALT_HASH="10"
+SECRET_KEY="aqui_va_la_llave_secreta_para_el_jwt"
