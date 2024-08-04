@@ -4,88 +4,86 @@ import { config } from "dotenv";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+
 config();
 
 const prisma = new PrismaClient();
-const env_local = process.env;
+const { SALT_HASH = 10, SECRET_KEY } = process.env;
 
-export const getUsers = async (req, res) => {
-    const users = await prisma.user.findMany({
-        select: {
-            id: true,
-            code: true,
-            email: true,
-            name: true,
-        },
-    });
-    let arr_users = [];
-    users.forEach((user) => {
-        let obj_user = {
-            id: user.code,
-            email: user.email,
-            name: user.name,
-        };
-        arr_users.push(obj_user);
-    });
+const generateToken = (id) => jwt.sign({ id }, SECRET_KEY, { expiresIn: '7d' });
 
-    res.status(200).json(arr_users);
-};
-
-export const getUser = async (req, res) => {
-    const userId = parseInt(req.params.userId ?? "0");
-    const user = await prisma.user.findMany({
-        where: { id: userId },
-        select: {
-            id: true,
-            email: true,
-            name: true,
-            roleId: true,
-            role: {
-                select: {
-                    id: true,
-                    name: true,
-                },
-            },
-        },
-    });
-    res.status(200).json(user);
-};
-
-export const addUser = async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        const errorMessages = errors.array().map((error) => error.msg);
-        return res.status(400).json({ errors: errorMessages });
-    }
-
-    const saltRounds = parseInt(env_local.SALT_HASH ?? 10);
-    const { email, name, password } = req.body;
-    let { roleId } = req.body;
-    roleId = roleId ?? 2;
-
+export const getUsers = async (req, res, next) => {
     try {
-        const existingUser = await prisma.user.findUnique({
-            where: { email },
-        });
-
-        if (existingUser) {
-            return res
-                .status(400)
-                .json({ errors: ["El correo ya está en uso"] });
-        }
-
-        const userRole = await prisma.role.findMany({
-            where: { id: roleId },
+        const users = await prisma.user.findMany({
             select: {
                 id: true,
                 code: true,
+                email: true,
+                name: true,
             },
+        });
+        const arr_users = users.map(({ code, email, name }) => ({
+            id: code,
+            email,
+            name,
+        }));
+        res.status(200).json(arr_users);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const getUser = async (req, res, next) => {
+    const userId = parseInt(req.params.userId ?? "0");
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                email: true,
+                name: true,
+                roleId: true,
+                role: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                    },
+                },
+            },
+        });
+        if (!user) {
+            return res.status(404).json({ errors: ["User not found"] });
+        }
+        res.status(200).json(user);
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const addUser = async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array().map(error => error.msg) });
+    }
+
+    const saltRounds = parseInt(SALT_HASH);
+    const { email, name, password, roleId = 2 } = req.body;
+
+    try {
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+
+        if (existingUser) {
+            return res.status(400).json({ errors: ["El correo ya está en uso"] });
+        }
+
+        const userRole = await prisma.role.findUnique({
+            where: { id: roleId },
+            select: { id: true },
         });
 
         if (!userRole) {
-            return res
-                .status(400)
-                .json({ errors: ["No hay rol para asignar"] });
+            return res.status(400).json({ errors: ["No hay rol para asignar"] });
         }
 
         const hashedPassword = await bcrypt.hash(password, saltRounds);
@@ -93,47 +91,35 @@ export const addUser = async (req, res) => {
         const newUser = await prisma.user.create({
             data: {
                 code: crypto.randomUUID(),
-                email: email,
-                name: name,
+                email,
+                name,
                 password: hashedPassword,
                 roleId: userRole.id,
             },
         });
 
-        let token = jwt.sign(
-            {
-                id: newUser.code,
-            },
-            env_local.SECRET_KEY,
-            {
-                expiresIn: "7d",
-            }
-        );
-        const updateUser = await prisma.user.update({
-            where: {
-                id: newUser.id,
-            },
-            data: {
-                token: token,
-            },
+        const token = generateToken(newUser.code);
+
+        await prisma.user.update({
+            where: { id: newUser.id },
+            data: { token },
         });
 
         res.status(201).json({
             id: newUser.code,
             email: newUser.email,
             name: newUser.name,
-            token: token,
+            token,
         });
     } catch (error) {
-        res.status(500).json({ error: [error], mensajes: "errores" });
+        next(error);
     }
 };
 
-export const login = async (req, res) => {
+export const login = async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-        const errorMessages = errors.array().map((error) => error.msg);
-        return res.status(400).json({ errors: errorMessages });
+        return res.status(400).json({ errors: errors.array().map(error => error.msg) });
     }
 
     const { email, password } = req.body;
@@ -157,139 +143,93 @@ export const login = async (req, res) => {
             },
         });
 
-        if (!existingUser) {
-            return res.status(400).json({
-                errors: ["El correo o la contraseña son incorrectos"],
-            });
+        if (!existingUser || !(await bcrypt.compare(password, existingUser.password))) {
+            return res.status(400).json({ errors: ["El correo o la contraseña son incorrectos"] });
         }
 
-        const hashedCompare = await bcrypt.compare(
-            password,
-            existingUser.password
-        );
-        if (!hashedCompare) {
-            return res.status(400).json({
-                errors: ["El correo o la contraseña son incorrectos."],
-            });
-        }
-        let token = jwt.sign(
-            {
-                id: existingUser.code,
-            },
-            env_local.SECRET_KEY,
-            {
-                expiresIn: "7d",
-            }
-        );
+        const token = generateToken(existingUser.code);
 
-        const updateUser = await prisma.user.update({
-            where: {
-                id: existingUser.id,
-            },
-            data: {
-                token: token,
-            },
+        await prisma.user.update({
+            where: { id: existingUser.id },
+            data: { token },
         });
 
         res.status(200).json({
             name: existingUser.name,
             email: existingUser.email,
             role: existingUser.role,
-            token: token,
-            message: "Inicio de session correctamente",
+            token,
+            message: "Inicio de sesión correctamente",
         });
     } catch (error) {
-        res.status(500).json({ error: [error] });
+        next(error);
     }
 };
 
-export const logout = async (req, res) => {
-    const token = req.session.access_token || null;
-    const data = req.session.user || null;
+export const logout = async (req, res, next) => {
+    const token = req.session?.access_token || null;
+    const user = req.session?.user || null;
+
     if (!token) {
-        return res.status(401).json({
-            errors: ["Sin auterizacion"],
-        });
+        return res.status(401).json({ errors: ["Sin autorización"] });
     }
 
     try {
-        const user = await prisma.user.update({
+        await prisma.user.update({
             where: {
-                id: data.id,
-                token: token,
+                id: user.id,
+                token,
             },
-            data: {
-                token: null,
-            },
+            data: { token: null },
         });
-        res.status(200).json({ message: "Se cerro la session correctamente" });
+        res.status(200).json({ message: "Se cerró la sesión correctamente" });
     } catch (error) {
-        return res.status(404).json({
-            errors: ["Parametros incorrectos"],
-        });
+        next(error);
     }
 };
 
-export const deleteUser = async (req, res) => {
+export const deleteUser = async (req, res, next) => {
     const { userId } = req.body;
     if (!userId) {
-        return res.status(404).json({
-            errors: ["Sin usuario que eliminar"],
-        });
+        return res.status(400).json({ errors: ["Sin usuario que eliminar"] });
     }
+
     try {
         await prisma.user.delete({
-            where: {
-                code: userId,
-            },
+            where: { code: userId },
         });
-        res.status(200).json({
-            message: "Se eliminó al usuario correctamente",
-        });
+        res.status(200).json({ message: "Se eliminó al usuario correctamente" });
     } catch (error) {
-        return res.status(404).json({
-            errors: ["Parametros incorrectos"],
-        });
+        next(error);
     }
 };
 
-export const updateUser = async (req, res) => {
+export const updateUser = async (req, res, next) => {
     const { userId, name, rolId } = req.body;
     if (!userId || !name || !rolId) {
-        return res.status(404).json({
-            errors: ["Complete los parametros obligatorios"],
-        });
+        return res.status(400).json({ errors: ["Complete los parámetros obligatorios"] });
     }
+
     try {
-        const userRol = await prisma.role.findFirst({
-            where: {
-                code: rolId,
-            },
-            select: {
-                id: true,
-            },
+        const userRole = await prisma.role.findUnique({
+            where: { code: rolId },
+            select: { id: true },
         });
-        if (!userRol) {
-            return res.status(404).json({
-                errors: ["El rolId es no existe"],
-            });
+
+        if (!userRole) {
+            return res.status(400).json({ errors: ["El rolId no existe"] });
         }
 
-        const updateUser = await prisma.user.update({
-            where: {
-                code: userId,
-            },
+        await prisma.user.update({
+            where: { code: userId },
             data: {
-                name: name,
-                roleId: userId.roleId,
+                name,
+                roleId: userRole.id,
             },
         });
-        res.status(200).json({
-            message: "Se actualizó al usuario correctamente",
-        });
+
+        res.status(200).json({ message: "Se actualizó al usuario correctamente" });
     } catch (error) {
-        return res.status(404).json({
-            errors: ["Parametros incorrectos"],
-        });
+        next(error);
     }
 };
